@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Love You to The Moon & Back</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --bg-color: #050505;
+            --card-width: 200px;
+            --card-height: 300px;
+            --accent-color: #FFD700;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            background-color: var(--bg-color);
+            color: #fff;
+            font-family: 'Fraunces', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%);
+            touch-action: none; 
+            user-select: none;
+        }
+
+        #star-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+        #fireworks-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; pointer-events: none; mix-blend-mode: screen; opacity: 0.8; }
+
+        /* --- 顶部示爱文字 --- */
+        .top-love-text {
+            position: fixed;
+            top: 40px;
+            left: 0; width: 100%;
+            text-align: center;
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 300;
+            color: #ffffff;
+            font-size: clamp(32px, 5vw, 64px);
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+            z-index: 80;
+            pointer-events: none;
+            opacity: 0; transform: translateY(-20px);
+            transition: opacity 1.5s ease, transform 1.5s ease;
+        }
+
+        /* --- 月球容器的基础样式 --- */
+        #moon-container {
+            position: fixed;
+            top: 50%; left: 50%;
+            /* 基础尺寸保持不变 */
+            width: 80vh; height: 80vh;
+            max-width: 800px; max-height: 800px;
+            z-index: 50;
+            pointer-events: none;
+
+            /* --- ADDED: 关键修改点 --- */
+            /* 将容器设为圆形，并隐藏溢出的内容，作为裁剪框 */
+            border-radius: 50%;
+            overflow: hidden;
+            /* ----------------------- */
+
+            /* 默认状态（首页状态）配置 */
+            opacity: 1; 
+            transform: translate(-50%, -20%) scale(1.8);
+
+            transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1), transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* --- CHANGED: 微调图片以裁切边缘黑边 --- */
+        #moon-img {
+            /* 稍微放大到 101%，配合容器裁切掉边缘可能存在的黑像素 */
+            width: 101%; height: 101%;
+            /* 使用负 margin 将放大的图片居中 */
+            margin-left: -0.5%; margin-top: -0.5%;
+            
+            object-fit: cover; border-radius: 50%;
+            
+            /* 显式确保没有 CSS 边框 */
+            border: none; outline: none;
+
+            /* 只保留外部白色光晕 */
+            box-shadow: 0 0 60px rgba(255, 255, 255, 0.2);
+        }
+        /* --------------------------------- */
+
+        /* --- 时间轴轨道 --- */
+        #carousel-container {
+            position: fixed; 
+            top: 50%; left: 0; width: 100%; height: 0;
+            opacity: 0; pointer-events: none;
+            perspective: 1500px; 
+            display: flex; justify-content: center; align-items: center;
+            transition: opacity 1s ease;
+            transform: translateY(0) rotateX(10deg);
+            z-index: 60; /* 容器本身不控制层级，由内部卡片控制 */
+        }
+        #carousel-axis { position: relative; width: 0; height: 0; transform-style: preserve-3d; }
+
+        .card {
+            position: absolute; width: var(--card-width); height: var(--card-height);
+            left: calc(var(--card-width) * -0.5); top: calc(var(--card-height) * -0.5);
+            border-radius: 12px; transform-style: preserve-3d; will-change: transform, z-index;
+            backface-visibility: hidden; 
+        }
+        .card-inner {
+            width: 100%; height: 100%; position: relative; overflow: hidden;
+            border-radius: 12px; background: #222; border: 1px solid rgba(255,255,255,0.1);
+            transition: border 0.3s, box-shadow 0.3s; transform-style: preserve-3d;
+        }
+        .card-img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.5); transition: filter 0.3s; transform: translateZ(0); }
+        .card-info {
+            position: absolute; bottom: 0; left: 0; width: 100%; padding: 20px 10px; text-align: center;
+            background: linear-gradient(to top, rgba(0,0,0,0.95), transparent); opacity: 0; transform: translateY(10px) translateZ(2px); transition: all 0.4s;
+        }
+        .card-date { color: var(--accent-color); font-size: 0.8rem; font-weight: bold; margin-bottom: 4px; }
+        .card-text { font-size: 0.95rem; font-weight: 500; text-shadow: 0 1px 3px black; }
+
+        .card.active .card-inner { border: 2px solid var(--accent-color); box-shadow: 0 0 25px rgba(255, 215, 0, 0.4); }
+        .card.active .card-img { filter: brightness(1); }
+        .card.active .card-info { opacity: 1; transform: translateY(0) translateZ(2px); }
+
+        /* --- 封面 --- */
+        #cover-section {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 300; 
+            transition: all 1s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(5px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            cursor: pointer; 
+        }
+        
+        .title-container { position: relative; display: flex; flex-direction: column; align-items: center; width: 80vw; pointer-events: none; }
+        .title-main { font-family: 'Fraunces', serif; font-size: clamp(3rem, 10vw, 8rem); font-weight: 800; color: #ffffff; text-shadow: 0 0 30px rgba(255, 255, 255, 0.4); white-space: nowrap; text-align: center; }
+        .title-sub { font-family: 'Fraunces', serif; font-size: clamp(1.5rem, 4vw, 3.5rem); font-weight: 500; font-style: italic; color: #ffffff; margin-top: 20px; white-space: nowrap; text-align: center; text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 255, 255, 0.3); }
+
+        .gesture-hint {
+            position: fixed; bottom: 120px; left: 0; width: 100%; text-align: center; 
+            font-size: 0.85rem; color: rgba(255, 255, 255, 0.6); pointer-events: none; z-index: 301;
+        }
+
+        /* 状态切换 */
+        body.view-cover #cover-section { opacity: 1; transform: scale(1); pointer-events: auto; }
+        body.view-cover #carousel-container { opacity: 0; pointer-events: none; }
+        body.view-cover .top-love-text { opacity: 0; transform: translateY(-20px); }
+        
+        body.view-timeline #cover-section { opacity: 0; transform: scale(2); pointer-events: none; filter: blur(20px); }
+        body.view-timeline #carousel-container { opacity: 1; pointer-events: auto; }
+        body.view-timeline #fireworks-canvas { opacity: 0; transition: opacity 0.5s; }
+        body.view-timeline .top-love-text { opacity: 1; transform: translateY(0); }
+
+        /* --- 月球的状态切换规则 --- */
+        /* 首页状态：确保它处于放大和下沉的位置 */
+        body.view-cover #moon-container {
+            transform: translate(-50%, -20%) scale(1.8);
+        }
+        /* 时间轴状态：回到中心位置，并恢复到基准大小 (缩放效果) */
+        body.view-timeline #moon-container {
+            transform: translate(-50%, -50%) scale(1);
+        }
+        /* -------------------------------- */
+
+        /* UI */
+        #webcam-container {
+            position: fixed; bottom: 100px; right: 20px; width: 100px; height: 133px;
+            border-radius: 12px; overflow: hidden; z-index: 9000; border: 2px solid rgba(255, 255, 255, 0.2);
+            background: #000; opacity: 0; transition: opacity 0.5s; pointer-events: none; transform: scaleX(-1);
+        }
+        #webcam-container.active { opacity: 1; pointer-events: auto; }
+        #webcam-video { width: 100%; height: 100%; object-fit: cover; }
+        #gesture-status {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center; text-align: center;
+            font-size: 14px; color: #0f0; text-shadow: 0 0 4px #000; font-weight: bold;
+            background: rgba(0,0,0,0.3); padding: 5px; transform: scaleX(-1);
+        }
+
+        .controls-wrapper {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); 
+            display: flex; gap: 20px; z-index: 9999; align-items: center; touch-action: manipulation;
+        }
+        .ctrl-btn {
+            background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.9); padding: 10px 24px; border-radius: 30px; 
+            font-size: 0.9rem; cursor: pointer; transition: all 0.3s; white-space: nowrap; pointer-events: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .ctrl-btn:hover { background: var(--accent-color); border-color: var(--accent-color); color: #000; transform: translateY(-2px); }
+
+        @media (max-width: 768px) {
+            :root { --card-width: 140px; --card-height: 210px; } 
+            .title-main { font-size: 3.5rem; }
+            .title-sub { font-size: 1.8rem; }
+            .gesture-hint { bottom: 100px; font-size: 0.75rem; width: 80%; left: 10%; } 
+            .top-love-text { top: 15%; }
+            #moon-container { width: 120vw; height: 120vw; }
+        }
+    </style>
+</head>
+<body class="view-cover">
+
+    <canvas id="star-canvas"></canvas>
+    <canvas id="fireworks-canvas"></canvas>
+
+    <div class="top-love-text">Love You to The Moon & Back</div>
+
+    <div id="moon-container">
+        <img id="moon-img" src="image_1.png" alt="Moon Background" onerror="this.style.background='transparent'">
+    </div>
+
+    <audio id="bg-music" loop preload="auto">
+        <source src="https://cdn.pixabay.com/audio/2022/10/18/audio_31c2730e64.mp3" type="audio/mpeg">
+    </audio>
+
+    <div id="cover-section">
+        <div class="cover-content">
+            <div class="title-container">
+                <div class="title-main">6 Months</div>
+                <div class="title-sub">with Janet</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="carousel-container">
+        <div id="carousel-axis">
+        </div>
+    </div>
+    
+    <div class="gesture-hint">
+        👐 张开手掌进入 / ✊ 握拳退出 / 👋 左右挥手滑动
+    </div>
+
+    <div class="controls-wrapper">
+        <button id="btn-toggle-music" class="ctrl-btn">🎵 音乐</button>
+        <button id="btn-toggle-cam" class="ctrl-btn">📷 开启手势</button>
+    </div>
+    
+    <div id="webcam-container">
+        <video id="webcam-video" playsinline muted></video>
+        <div id="gesture-status"></div>
+    </div>
+
+    <script>
+        const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        
+        const memories = [
+            { date: '2025.04.06', text: '第二次见你 - 十三陵水库', img: 'bb1.jpg' },
+            { date: '2025.04.13', text: '第一次亲我 - The Tides', img: 'bb2.jpg' },
+            { date: '2025.04.20', text: '北半马 & Live house', img: 'bb3.jpg' },
+            { date: '2025.04.30', text: 'Our First Night', img: 'bb6.jpg' },
+            { date: '2025.05.01', text: 'Our First Trip', img: 'bb7.jpg' },
+            { date: '2025.05.12', text: '北野动物园', img: 'bb10.jpg' },
+            { date: '2025.06.07', text: 'My Girlfriend', img: 'bb12.jpg' },
+            { date: '2025.10.06', text: '🇮🇹💗 Rome', img: 'bb16.jpg' }
+        ];
+
+        // 1. 星空背景
+        const starCanvas = document.getElementById('star-canvas');
+        const starCtx = starCanvas.getContext('2d');
+        let starParticles = [];
+        
+        function resizeCanvas() { 
+            starCanvas.width = window.innerWidth; starCanvas.height = window.innerHeight;
+            document.getElementById('fireworks-canvas').width = window.innerWidth;
+            document.getElementById('fireworks-canvas').height = window.innerHeight;
+            createStars();
+        }
+        function createStars() {
+            starParticles = [];
+            for(let i=0; i<200; i++) {
+                starParticles.push({ x: Math.random() * starCanvas.width, y: Math.random() * starCanvas.height, radius: Math.random() * 1.5, alpha: Math.random(), speed: Math.random() * 0.05 });
+            }
+        }
+        function drawStars() {
+            starCtx.clearRect(0, 0, starCanvas.width, starCanvas.height); starCtx.fillStyle = "white";
+            starParticles.forEach(p => {
+                starCtx.globalAlpha = p.alpha; starCtx.beginPath(); starCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); starCtx.fill();
+                p.y -= p.speed; if(p.y < 0) p.y = starCanvas.height;
+            });
+            requestAnimationFrame(drawStars);
+        }
+        window.addEventListener('resize', resizeCanvas); resizeCanvas(); drawStars();
+
+        // 烟花
+        const fwCanvas = document.getElementById('fireworks-canvas'); const fwCtx = fwCanvas.getContext('2d');
+        let fwParticles = []; let stopFireworks = false;
+        function createExplosion(x, y) {
+            for (let i = 0; i < 20; i++) {
+                const angle = Math.random() * Math.PI * 2; const speed = Math.random() * 3 + 2;
+                fwParticles.push({ x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, alpha: 1, color: '#C71585' });
+            }
+        }
+        function animateFw() {
+            fwCtx.globalCompositeOperation = 'destination-out'; fwCtx.fillStyle = 'rgba(0,0,0,0.1)'; fwCtx.fillRect(0,0,fwCanvas.width,fwCanvas.height);
+            fwCtx.globalCompositeOperation = 'lighter';
+            for (let i = fwParticles.length - 1; i >= 0; i--) {
+                let p = fwParticles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.alpha -= 0.02;
+                fwCtx.globalAlpha = p.alpha; fwCtx.fillStyle = p.color; fwCtx.beginPath(); fwCtx.arc(p.x, p.y, 2, 0, Math.PI*2); fwCtx.fill();
+                if(p.alpha<=0) fwParticles.splice(i,1);
+            }
+            if (!stopFireworks && Math.random() < 0.02) createExplosion(Math.random()*fwCanvas.width, Math.random()*fwCanvas.height*0.6);
+            requestAnimationFrame(animateFw);
+        }
+        animateFw();
+
+        // 2. 3D 旋转逻辑
+        const axis = document.getElementById('carousel-axis');
+        const count = memories.length;
+        const radiusX = window.innerWidth < 768 ? 260 : 500; 
+        const radiusZ = window.innerWidth < 768 ? 240 : 450; 
+        const theta = (Math.PI * 2) / count; 
+        let currentAngle = 0; let targetAngle = 0;
+
+        memories.forEach((item, i) => {
+            const card = document.createElement('div'); card.className = 'card';
+            card.innerHTML = `<div class="card-inner"><img src="${item.img}" class="card-img" onerror="this.src='https://placehold.co/200x300/333/fff?text=Photo'"><div class="card-info"><div class="card-date">${item.date}</div><div class="card-text">${item.text}</div></div></div>`;
+            axis.appendChild(card);
+        });
+        const cards = document.querySelectorAll('.card');
+
+        function animateCarousel() {
+            currentAngle += (targetAngle - currentAngle) * 0.08;
+            cards.forEach((card, i) => {
+                const angle = (i * theta) + currentAngle; 
+                const x = radiusX * Math.sin(angle);
+                const z = radiusZ * Math.cos(angle);
+                const rotationY = (angle * 180 / Math.PI); 
+                const distanceFactor = (z + radiusZ + 200) / (2 * radiusZ + 200); 
+                const scale = 0.5 + (0.5 * distanceFactor);
+                
+                card.style.opacity = 0.3 + (0.7 * distanceFactor);
+                card.style.transform = `translate3d(${x}px, 0, ${z}px) rotateY(${rotationY}deg) scale(${scale})`;
+                
+                // --- CHANGED: 这里的逻辑是关键 ---
+                // 月球在 CSS 中 z-index 设置为 50。
+                // 如果卡片在前面 (z > 20)，设置 z-index 为 60（挡住月球）
+                // 如果卡片在后面 (z <= 20)，设置 z-index 为 40（被月球挡住）
+                card.style.zIndex = z > 20 ? 60 : 40;
+
+                if (z > (radiusZ - 50)) card.classList.add('active'); else card.classList.remove('active');
+            });
+            requestAnimationFrame(animateCarousel);
+        }
+        animateCarousel();
+
+        // 交互
+        let isDragging = false; let lastX = 0;
+        document.addEventListener('mousedown', (e) => { if(isTimelineActive) { isDragging=true; lastX=e.clientX; }});
+        document.addEventListener('mousemove', (e) => { if(isTimelineActive && isDragging) { targetAngle -= (e.clientX - lastX) * 0.005; lastX = e.clientX; }});
+        document.addEventListener('mouseup', () => isDragging=false);
+        document.addEventListener('touchstart', (e) => { if(isTimelineActive) { lastX=e.touches[0].clientX; }});
+        document.addEventListener('touchmove', (e) => { if(isTimelineActive) { targetAngle -= (e.touches[0].clientX - lastX) * 0.008; lastX = e.touches[0].clientX; }});
+        document.addEventListener('wheel', (e) => { if(isTimelineActive) targetAngle += e.deltaY * 0.001; });
+
+        // 3. 手势控制
+        const videoElement = document.getElementById('webcam-video');
+        const webcamContainer = document.getElementById('webcam-container');
+        const gestureStatus = document.getElementById('gesture-status');
+        const btnToggleCam = document.getElementById('btn-toggle-cam');
+        let camera = null; let lastHandX = null; let isCameraActive = false; let gestureCooldown = 0;
+
+        function onResults(results) {
+            if (Date.now() < gestureCooldown) return;
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                gestureStatus.innerText = "未检测到手"; gestureStatus.style.color = "#888"; lastHandX = null; return;
+            }
+            const landmarks = results.multiHandLandmarks[0];
+            let fingersUp = 0;
+            if (landmarks[4].x < landmarks[3].x) fingersUp++; 
+            if (landmarks[8].y < landmarks[6].y) fingersUp++;
+            if (landmarks[12].y < landmarks[10].y) fingersUp++;
+            if (landmarks[16].y < landmarks[14].y) fingersUp++;
+            if (landmarks[20].y < landmarks[18].y) fingersUp++;
+
+            let statusText = ""; let statusColor = "#fff";
+            if (fingersUp >= 4) {
+                if (!isTimelineActive) {
+                    statusText = "🖐️ 进入相册"; statusColor = "#0f0";
+                    enterTimeline(); gestureCooldown = Date.now() + 1500;
+                } else {
+                    statusText = "🖐️ 滑动控制"; statusColor = "#0ff";
+                    const currentX = landmarks[9].x; 
+                    if (lastHandX !== null) {
+                        const delta = currentX - lastHandX;
+                        if (Math.abs(delta) > 0.003) targetAngle -= delta * 10; 
+                    }
+                    lastHandX = currentX;
+                }
+            } else if (fingersUp <= 1) {
+                if (isTimelineActive) {
+                    statusText = "✊ 退出相册"; statusColor = "#f0f";
+                    exitTimeline(); gestureCooldown = Date.now() + 1500;
+                } else {
+                    statusText = "✊ 握拳待机";
+                }
+                lastHandX = null;
+            } else { statusText = "检测中..."; lastHandX = null; }
+            gestureStatus.innerText = statusText; gestureStatus.style.color = statusColor;
+        }
+
+        async function startCamera() {
+            if (!isSecure) { alert("手势功能需要HTTPS环境。"); return; }
+            btnToggleCam.disabled = true; btnToggleCam.innerText = "⏳ 加载模型...";
+            try {
+                const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`});
+                hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+                hands.onResults(onResults);
+                camera = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 480, height: 360 });
+                await camera.start();
+                isCameraActive = true; webcamContainer.classList.add('active'); btnToggleCam.innerText = "🔴 关闭手势"; btnToggleCam.disabled = false;
+            } catch (e) {
+                console.error(e); alert("摄像头启动失败，请检查权限。"); btnToggleCam.innerText = "📷 开启手势"; btnToggleCam.disabled = false;
+            }
+        }
+
+        btnToggleCam.addEventListener('click', () => {
+            unlockAudio(); if (isCameraActive) location.reload(); else startCamera();
+        });
+
+        const bgMusic = document.getElementById('bg-music');
+        const btnToggleMusic = document.getElementById('btn-toggle-music');
+        let isTimelineActive = false; let audioUnlocked = false;
+
+        function unlockAudio() { if (!audioUnlocked && bgMusic.paused) { bgMusic.play().then(()=> { bgMusic.pause(); audioUnlocked = true; }).catch(()=>{}); } }
+        document.getElementById('cover-section').addEventListener('click', () => { if(!isCameraActive) enterTimeline(); unlockAudio(); });
+
+        btnToggleMusic.addEventListener('click', () => {
+            if (bgMusic.paused) { bgMusic.play(); btnToggleMusic.innerText = "🎵 暂停"; } 
+            else { bgMusic.pause(); btnToggleMusic.innerText = "🎵 音乐"; }
+        });
+
+        function enterTimeline() {
+            if (isTimelineActive) return;
+            isTimelineActive = true;
+            document.body.classList.remove('view-cover'); document.body.classList.add('view-timeline');
+            stopFireworks = true;
+            if (audioUnlocked && bgMusic.paused) bgMusic.play();
+        }
+        function exitTimeline() {
+            if (!isTimelineActive) return;
+            isTimelineActive = false;
+            document.body.classList.remove('view-timeline'); document.body.classList.add('view-cover');
+            stopFireworks = false;
+            if (!bgMusic.paused) bgMusic.pause();
+        }
+    </script>
+</body>
+</html>
